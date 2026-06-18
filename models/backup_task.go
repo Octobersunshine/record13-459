@@ -1,0 +1,54 @@
+package models
+
+import "time"
+
+type BackupStatus string
+
+const (
+	StatusPending   BackupStatus = "pending"
+	StatusRunning BackupStatus = "running"
+	StatusSuccess BackupStatus = "success"
+	StatusFailed  BackupStatus = "failed"
+)
+
+type BackupTask struct {
+	ID            string       `json:"id"`
+	DatabaseName  string     `json:"database_name"`
+	Status        BackupStatus `json:"status"`
+	Progress      int        `json:"progress"`
+	TotalSize     int64      `json:"total_size"`
+	BackupSize    int64      `json:"backup_size"`
+	StartTime     *time.Time `json:"start_time"`
+	EndTime       *time.Time `json:"end_time"`
+	ErrorMessage  string     `json:"error_message,omitempty"`
+	BackupType    string     `json:"backup_type"`
+	FilePath    string     `json:"file_path,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+type TaskListResponse struct {
+	Total int64        `json:"total"`
+	Tasks []BackupTask `json:"tasks"`
+}
+
+type TaskQuery struct {
+	Status  *BackupStatus `json:"status,omitempty"`
+	Keyword string        `json:"keyword,omitempty"`
+	Page    int           `json:"page"`
+	Size    int           `json:"size"`
+}
+
+func (q *TaskQuery) GetPage() int {
+	if q.Page <= 0 {
+		return 1
+	}
+	return q.Page
+}
+
+func (q *TaskQuery) GetSize() int {
+	if q.Size <= 0 {
+		return 10
+	}
+	return q.Size
+}
