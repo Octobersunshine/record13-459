@@ -15,6 +15,8 @@ type BackupStore interface {
 	List(query *models.TaskQuery) (*models.TaskListResponse, error)
 	Create(task *models.BackupTask) error
 	Update(task *models.BackupTask) error
+	UpdateHeartbeat(id string) error
+	CheckTimeoutTasks(timeout time.Duration) (int64, error)
 }
 
 type MemoryStore struct {
@@ -117,21 +119,64 @@ func (s *MemoryStore) initMockData() {
 }
 
 func (s *MemoryStore) GetByID(id string) (*models.BackupTask, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	task, exists := s.tasks[id]
 	if !exists {
 		return nil, errors.New("任务不存在")
 	}
 
+	if task.IsTimeout(models.DefaultHeartbeatTimeout) {
+		task.MarkAsFailed("备份进程心跳超时，疑似异常崩溃")
+	}
+
 	result := *task
 	return &result, nil
 }
 
+func (s *MemoryStore) UpdateHeartbeat(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, exists := s.tasks[id]
+	if !exists {
+		return errors.New("任务不存在")
+	}
+
+	if task.Status != models.StatusRunning {
+		return errors.New("任务不在运行中，无法更新心跳")
+	}
+
+	now := time.Now()
+	task.LastHeartbeatAt = &now
+	task.UpdatedAt = now
+	return nil
+}
+
+func (s *MemoryStore) CheckTimeoutTasks(timeout time.Duration) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var count int64
+	for _, task := range s.tasks {
+		if task.IsTimeout(timeout) {
+			task.MarkAsFailed("备份进程心跳超时，疑似异常崩溃")
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (s *MemoryStore) List(query *models.TaskQuery) (*models.TaskListResponse, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, task := range s.tasks {
+		if task.IsTimeout(models.DefaultHeartbeatTimeout) {
+			task.MarkAsFailed("备份进程心跳超时，疑似异常崩溃")
+		}
+	}
 
 	var filtered []*models.BackupTask
 	for _, task := range s.tasks {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type BackupHandler struct {
@@ -141,6 +142,65 @@ func respondSuccess(w http.ResponseWriter, data interface{}) {
 		Data:    data,
 	}
 	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *BackupHandler) Heartbeat(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	path := strings.TrimPrefix(r.URL.Path, "/api/backup/tasks/")
+	id := strings.TrimSuffix(path, "/heartbeat")
+	id = strings.TrimSpace(id)
+
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "任务ID不能为空")
+		return
+	}
+
+	if err := h.store.UpdateHeartbeat(id); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	respondSuccess(w, map[string]interface{}{
+		"id":            id,
+		"status":        "running",
+		"heartbeat_at":  time.Now(),
+	})
+}
+
+func (h *BackupHandler) CheckTimeout(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	timeout := models.DefaultHeartbeatTimeout
+	timeoutStr := r.URL.Query().Get("timeout_minutes")
+	if timeoutStr != "" {
+		minutes, err := strconv.Atoi(timeoutStr)
+		if err == nil && minutes > 0 {
+			timeout = time.Duration(minutes) * time.Minute
+		}
+	}
+
+	count, err := h.store.CheckTimeoutTasks(timeout)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondSuccess(w, map[string]interface{}{
+		"timeout_minutes": int(timeout.Minutes()),
+		"corrected_count": count,
+		"message":         "巡检完成",
+	})
 }
 
 func respondError(w http.ResponseWriter, code int, message string) {
